@@ -42,6 +42,7 @@ var _ = Describe("DataService Controller", func() {
 			err := k8sClient.Get(ctx, typeNamespacedName, dataservice)
 			if err != nil && errors.IsNotFound(err) {
 				replicas := int32(1)
+				configValue := "test-config"
 				resource := &appv1.DataService{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
@@ -50,7 +51,7 @@ var _ = Describe("DataService Controller", func() {
 					Spec: appv1.DataServiceSpec{
 						Replicas:    replicas,
 						Image:       "nginx:latest",
-						ConfigValue: "test-config",
+						ConfigValue: &configValue,
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
