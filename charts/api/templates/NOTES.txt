@@ -1,0 +1,2 @@
+API deployed successfully.
+Access via: kubectl port-forward svc/api-release-api 8080:8080

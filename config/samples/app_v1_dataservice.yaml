@@ -1,0 +1,9 @@
+apiVersion: app.schwarz.io/v1
+kind: DataService
+metadata:
+  labels:
+    app.kubernetes.io/name: k8s-operator-lab
+    app.kubernetes.io/managed-by: kustomize
+  name: dataservice-sample
+spec:
+  # TODO(user): Add fields here
