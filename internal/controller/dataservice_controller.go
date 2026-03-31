@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -52,7 +53,8 @@ func (r *DataServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		return ctrl.Result{}, err
+		// Transient: API kurz nicht erreichbar → retry
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
 	}
 
 	log.Info("Reconciling DataService", "name", ds.Name, "replicas", ds.Spec.Replicas)
@@ -86,6 +88,7 @@ func (r *DataServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	if err := ctrl.SetControllerReference(&ds, desired, r.Scheme); err != nil {
+		// Permanent: falsche Typen — retry hilft nicht
 		return ctrl.Result{}, err
 	}
 
@@ -94,21 +97,25 @@ func (r *DataServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if errors.IsNotFound(err) {
 		log.Info("Creating Deployment", "name", deploymentName)
 		if err := r.Create(ctx, desired); err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
 		}
 	} else if err != nil {
-		return ctrl.Result{}, err
+		// Transient: unbekannter Get-Fehler → retry
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
 	} else {
+		// Patch statt Update — nur Diff wird geschrieben
+		patch := client.MergeFrom(existing.DeepCopy())
 		existing.Spec.Replicas = &ds.Spec.Replicas
 		existing.Spec.Template.Spec.Containers[0].Image = ds.Spec.Image
-		if err := r.Update(ctx, &existing); err != nil {
-			return ctrl.Result{}, err
+		if err := r.Patch(ctx, &existing, patch); err != nil {
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
 		}
 	}
 
-	// Fix: nur updaten wenn sich ReadyReplicas wirklich geändert hat
+	// Status nur updaten wenn sich ReadyReplicas wirklich geändert hat
 	currentReady := existing.Status.ReadyReplicas
 	if ds.Status.ReadyReplicas != currentReady {
+		statusPatch := client.MergeFrom(ds.DeepCopy())
 		ds.Status.ReadyReplicas = currentReady
 		ds.Status.Conditions = []metav1.Condition{{
 			Type:               "Available",
@@ -117,8 +124,8 @@ func (r *DataServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			Message:            fmt.Sprintf("Deployment %s reconciled", deploymentName),
 			LastTransitionTime: metav1.Now(),
 		}}
-		if err := r.Status().Update(ctx, &ds); err != nil {
-			return ctrl.Result{}, err
+		if err := r.Status().Patch(ctx, &ds, statusPatch); err != nil {
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
 		}
 	}
 
